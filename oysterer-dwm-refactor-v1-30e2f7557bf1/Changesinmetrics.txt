@@ -1,0 +1,26 @@
+OG parameters give
+Precision= 0.9007
+Recall= 0.722
+F-measure= 0.8015
+
+
+changed parameter values, 
+matrixInitialRule=True   # CHANGE: FALSE → TRUE
+matrixNumTokenRule=True  # CHANGE: FALSE → TRUE
+
+Precision= 0.9007
+Recall= 0.722
+F-measure= 0.8015
+
+No change in the result
+
+changed parameter value, 
+excludeNumericBlocks=False #CHANGE: FALSE → TRUE
+Precision= 0.7867
+Recall= 0.2435
+F-measure= 0.3719
+
+only changing this parameter caused 
+Precision= 0.8399
+Recall= 0.7061
+F-measure= 0.7672
