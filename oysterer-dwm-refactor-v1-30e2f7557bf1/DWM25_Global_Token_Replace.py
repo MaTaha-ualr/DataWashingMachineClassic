@@ -10,6 +10,55 @@ from textdistance import DamerauLevenshtein
 #from textdistance import Levenshtein
 import Levenshtein as lev
 import operator
+import json
+import os
+
+VARIANT_MAP_FILE = 'DWM_TokenVariants.json'
+
+
+def _load_variant_map(path):
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return data
+
+
+def _save_variant_map(path, data):
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=True, sort_keys=True)
+
+
+def _update_learned_variants(learned_variants, std_token_dict):
+    updated = False
+    existing_variants = set()
+    for standard, variants in learned_variants.items():
+        if not isinstance(variants, list):
+            continue
+        for variant in variants:
+            existing_variants.add(variant)
+    for variant, standard in std_token_dict.items():
+        if not variant.isalpha() or not standard.isalpha():
+            continue
+        if variant in existing_variants:
+            # Respect manual mappings; never reassign or duplicate variants.
+            continue
+        if standard not in learned_variants:
+            learned_variants[standard] = []
+        if variant not in learned_variants[standard] and variant != standard:
+            learned_variants[standard].append(variant)
+            existing_variants.add(variant)
+            updated = True
+    # Keep lists sorted for stable files
+    if updated:
+        for standard in learned_variants:
+            learned_variants[standard] = sorted(set(learned_variants[standard]))
+    return updated
 
 
 # In[2]:
@@ -20,6 +69,13 @@ def globalReplace(refDict, tokenFreqDict):
     print ("\n>>Starting DWM25 --- runGlobalCorrection is set to True")
     print("\n>>Starting DWM25 --- runGlobalCorrection is set to True", file=logFile)
     Class = DamerauLevenshtein()
+    learned_variants = _load_variant_map(VARIANT_MAP_FILE)
+    variant_map = {}
+    for standard, variants in learned_variants.items():
+        if not isinstance(variants, list):
+            continue
+        for variant in variants:
+            variant_map[variant] = standard
 #Phase 1 Create Dictionary from DWM_WordList
     wordListDict = {}
     wordListFile = open('DWM_WordList.txt','r')
@@ -93,6 +149,17 @@ def globalReplace(refDict, tokenFreqDict):
                     cleanIndex[k] = ('',freqK)
     print('\nTotal correction pairs = ', len(stdTokenDict)) 
     print('\nTotal correction pairs = ', len(stdTokenDict), file=logFile) 
+    # Add explicit standardizations (variant -> standard)
+    if variant_map:
+        stdTokenDict.update(variant_map)
+        print('Total standardization pairs = ', len(variant_map))
+        print('Total standardization pairs = ', len(variant_map), file=logFile)
+    # Update learned variants with new corrections
+    if DWM10_Parms.learnTokenVariants:
+        if _update_learned_variants(learned_variants, stdTokenDict):
+            _save_variant_map(VARIANT_MAP_FILE, learned_variants)
+            print('Updated variant map saved to', VARIANT_MAP_FILE)
+            print('Updated variant map saved to', VARIANT_MAP_FILE, file=logFile)
     # If detail requested, write changes to run log
     if DWM10_Parms.globalCorrectionDetail:
         print('Details of correction sent to logFile')
@@ -125,4 +192,3 @@ def globalReplace(refDict, tokenFreqDict):
     print('Total references corrected = ', refChangeCnt) 
     print('Total references corrected = ', refChangeCnt, file=logFile)
     return newDict
-

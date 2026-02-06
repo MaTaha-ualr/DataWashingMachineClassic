@@ -10,6 +10,8 @@ allowing users to understand how data transforms through the pipeline.
 
 import os
 import csv
+import json
+import re
 import DWM10_Parms
 from textdistance import Cosine, MongeElkan
 import DWM65_ScoringMatrixStd
@@ -259,6 +261,62 @@ def save_cluster_list(clusterList, filepath, refDict, truthDict=None):
                 writer.writerow([clusterID, refID, tokens, truth])
             else:
                 writer.writerow([clusterID, refID, tokens])
+    print(f'  Data captured: {filepath}')
+
+
+_digit_re = re.compile(r'\d')
+
+
+def _split_name_address(tokens):
+    name_tokens = []
+    address_tokens = []
+    found_number = False
+    for token in tokens:
+        if not found_number and _digit_re.search(token):
+            found_number = True
+        if found_number:
+            address_tokens.append(token)
+        else:
+            name_tokens.append(token)
+    return name_tokens, address_tokens
+
+
+def save_cluster_json(clusterList, filepath, refDict):
+    """
+    Save clusterList to JSON with name/address split and merged refIDs.
+
+    Args:
+        clusterList: List of tuples (clusterID, refID)
+        filepath: Full path to output JSON file
+        refDict: Dictionary where key=refID, value=list of tokens
+    """
+    clusters = {}
+    for cluster_id, ref_id in clusterList:
+        tokens = refDict.get(ref_id, [])
+        name_tokens, address_tokens = _split_name_address(tokens)
+        name = ' '.join(name_tokens).strip()
+        address = ' '.join(address_tokens).strip()
+        key = (name, address)
+        if cluster_id not in clusters:
+            clusters[cluster_id] = {}
+        if key not in clusters[cluster_id]:
+            clusters[cluster_id][key] = set()
+        clusters[cluster_id][key].add(ref_id)
+    output = []
+    for cluster_id in sorted(clusters.keys()):
+        records = []
+        for (name, address), ref_ids in sorted(clusters[cluster_id].items(), key=lambda x: (x[0][0], x[0][1])):
+            records.append({
+                'refIDs': ', '.join(sorted(ref_ids)),
+                'name': name,
+                'address': address
+            })
+        output.append({
+            'clusterID': cluster_id,
+            'records': records
+        })
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(output, f, indent=2, ensure_ascii=True)
     print(f'  Data captured: {filepath}')
 def filter_tokens_for_comparison(tokens, tokenFreqDict):
     """

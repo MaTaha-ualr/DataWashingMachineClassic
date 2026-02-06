@@ -17,7 +17,7 @@ hasHeader=True
 # Compress replaces non-word characters with null
 # Splitter replaces non-word characters with space
 # Default value is "Splitter"
-tokenizerType=Compress
+tokenizerType=Splitter
 # truthFileName Optional Parameter
 # if provided, must be an existing text file in valid format
 # Default value null
@@ -25,7 +25,7 @@ truthFileName=truthABCpoorDQ.txt
 # runIterationProfile Optional Parameter
 # if True, outputs cluster profile & F-meas for each iteration
 # Default value False
-runIterationProfile=True
+runIterationProfile=False
 # addRefsToLinkIndex Optional Parameter
 # If True, the complete reference is included in the link index
 # If False, the link index only includes the refID and clusterID
@@ -83,7 +83,7 @@ minBlkTokenLen=3
 # excludeNumericBlocks must be True or False
 # If True, all digit tokens are not used for blocking
 # Default value True
-excludeNumericBlocks=True
+excludeNumericBlocks=False
 ########################################
 # Stop Word Parameters
 # sigma must be an integer value > beta
@@ -124,7 +124,7 @@ comparator=ScoringMatrixKris
 # If True, requires exact match between two numeric tokens
 # applies only to ScoringMatrixStd and ScoringMatrixKris
 # Default value False
-matrixNumTokenRule=True
+matrixNumTokenRule=False
 # matrixInitialRule must be True of False
 # If True, requires exact match if either token has length 1
 # applies only to ScoringMatrixStd and ScoringMatrixKris

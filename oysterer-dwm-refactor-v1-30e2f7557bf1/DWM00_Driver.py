@@ -181,6 +181,8 @@ while True:
     print('comparator =', comparator)
     print('comparator =', comparator, file=logFile)
     firstIteration = True
+    lastClusterList = None
+    lastIterationLinkIndex = None
     while moreToDo:
         iterationNum += 1
         iterationFolder = DWM_DataCapture.create_iteration_folder(captureFolder, iterationNum)
@@ -241,12 +243,14 @@ while True:
             break
         clusterList = DWM80_TransitiveClosure.transitiveClosure(linkedPairList)
         DWM_DataCapture.save_cluster_list(clusterList, os.path.join(iterationFolder, '08_clusterList.csv'), refDict, truthDict)
+        lastClusterList = clusterList
         if len(clusterList)==0:
             print('--Ending because clusterList is empty')
             print('--Ending because clusterList is empty', file=logFile)
             break
         iterationLinkIndex = DWM90_IterateClusters.iterateClusters(clusterList, refDict, linkIndex)
         DWM_DataCapture.save_link_index(iterationLinkIndex, os.path.join(iterationFolder, '09_linkIndex.csv'), refDict)
+        lastIterationLinkIndex = iterationLinkIndex
         print("\n>>Itermediate Results from this Iteration")
         print("\n>>Itermediate Results from this Iteration", file=logFile)
         # Run iteration profile and statistics if requested
@@ -273,6 +277,13 @@ while True:
     # End of iterations
     # Save final linkIndex to data capture folder
     DWM_DataCapture.save_link_index(linkIndex, os.path.join(captureFolder, 'final_linkIndex.csv'), refDict)
+    # Save final cluster list (sorted by ClusterID) derived from final linkIndex as JSON
+    for refID in linkIndex:
+        if not linkIndex[refID]:
+            linkIndex[refID] = refID
+    finalClusterList = [(clusterID, refID) for refID, clusterID in linkIndex.items()]
+    finalClusterList.sort(key=lambda x: (x[0], x[1]))
+    DWM_DataCapture.save_cluster_json(finalClusterList, os.path.join(captureFolder, 'clusterList.json'), refDict)
     # write Link Index to text file
     DWM96_WriteLinkIndex.writeLinkIndex(linkIndex, refDict)
     # Generate Cluster Profile

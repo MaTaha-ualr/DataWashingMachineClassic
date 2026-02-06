@@ -42,6 +42,8 @@ runGlobalCorrection=True
 # If True, global correctiond will print to log file
 # Default value False
 globalCorrectionDetail=False
+# Learn/update token variant map
+learnTokenVariants=False
 # minFreqStdToken must integer value > 0
 # specifies the lowest freq of correction token
 # Default value 5
@@ -59,7 +61,7 @@ maxFreqErrToken=3
 # blockCorrection must be True or False
 # indicates if block corrections will occur
 # Default value is False
-blockCorrection=False
+blockCorrection=True
 # Block Correction Detail (OPTIONAL}
 # blockCorrectionDetail must be True or False
 # indicates if block correction details are written to logFile
@@ -102,12 +104,12 @@ removeExcludedBlkTokens=True
 # Linking Paramters
 # epsilon must be decimal value between 0.0 and 1.0
 # only clusters with quality >= epsilon are kept each iteration
-# Default value 
-epsilon=0.01
+# Default value 0.70
+epsilon=0.70
 # epsilonIterate must be decimal value between 0.0 and 1.0
 # value added to epsilon at the end of each iteration
 # Default value 0.0
-epsilonIterate=0.11
+epsilonIterate=0.10
 # mu must be decimal value between 0.0 and 1.0
 # starting value for match threshold to link two references
 # Default value 0.5
@@ -115,7 +117,7 @@ mu=0.73
 # muIterate must be decimal value between 0.0 and 1.0
 # value added to mu at the end of each iteration
 # Default value 0.10
-muIterate=0.03
+muIterate=0.10
 # comparator must be the name of a valid comparator
 # 'Cosine','MongeElkan','ScoringMatrixStd', 'ScoringMatrixKris'
 # Default value ScoringMatrixKris

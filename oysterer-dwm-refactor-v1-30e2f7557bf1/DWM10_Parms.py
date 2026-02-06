@@ -22,6 +22,7 @@ addRefsToLinkIndex = False
 # Global Correction Parameters
 runGlobalCorrection = False
 globalCorrectionDetail = False
+learnTokenVariants = False
 minFreqStdToken = 5
 minLenStdToken = 3
 maxFreqErrToken = 3
@@ -119,7 +120,7 @@ def getParms(parmFileName, logName):
     logFile = logName
     global fatalError
    
-    validParmNames = ['inputFileName','delimiter', 'hasHeader', 'tokenizerType', 'removeDuplicateTokens',                        'minFreqStdToken', 'minLenStdToken', 'maxFreqErrToken', 'addRefsToLinkIndex',                              'mu', 'muIterate', 'beta', 'minBlkTokenLen', 'sigma', 'epsilon', 'epsilonIterate',                         'excludeNumericBlocks', 'removeExcludedBlkTokens','runClusterMetrics', 'createFinalJoin',                       'blockByPairs', 'comparator','truthFileName', 'matrixNumTokenRule', 'matrixInitialRule',                        'runGlobalCorrection', 'runIterationProfile', 'blockCorrection', 'blockCorrectionDetail',                       'globalCorrectionDetail']
+    validParmNames = ['inputFileName','delimiter', 'hasHeader', 'tokenizerType', 'removeDuplicateTokens',                        'minFreqStdToken', 'minLenStdToken', 'maxFreqErrToken', 'addRefsToLinkIndex',                              'mu', 'muIterate', 'beta', 'minBlkTokenLen', 'sigma', 'epsilon', 'epsilonIterate',                         'excludeNumericBlocks', 'removeExcludedBlkTokens','runClusterMetrics', 'createFinalJoin',                       'blockByPairs', 'comparator','truthFileName', 'matrixNumTokenRule', 'matrixInitialRule',                        'runGlobalCorrection', 'runIterationProfile', 'blockCorrection', 'blockCorrectionDetail',                       'globalCorrectionDetail', 'learnTokenVariants']
     parmFile = open(parmFileName,'r')
     parms = {}
     lineNbr = 0
@@ -176,6 +177,10 @@ def getParms(parmFileName, logName):
             global globalCorrectionDetail
             globalCorrectionDetail = convertToBoolean(lineNbr, parmValue)
             continue        
+        if parmName=='learnTokenVariants':
+            global learnTokenVariants
+            learnTokenVariants = convertToBoolean(lineNbr, parmValue)
+            continue
         if parmName=='runIterationProfile':
             global runIterationProfile
             runIterationProfile = convertToBoolean(lineNbr, parmValue)

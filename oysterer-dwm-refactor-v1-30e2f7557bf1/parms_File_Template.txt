@@ -43,6 +43,10 @@ runGlobalCorrection=???
 # If True, global corrections are printed to logFile
 # Default value False
 globalCorrectionDetail=???
+# learnTokenVariants must be True or False
+# If True, DWM_TokenVariants.json will be updated with new variants
+# Default value False
+learnTokenVariants=???
 # minFreqStdToken must integer value > 0
 # specifies the lowest freq of correction token
 # Default value 5
