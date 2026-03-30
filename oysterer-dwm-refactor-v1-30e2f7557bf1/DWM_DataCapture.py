@@ -6,6 +6,9 @@ DWM_DataCapture.py - Utility module for capturing intermediate data after each D
 
 This module provides functions to save data structures to CSV files,
 allowing users to understand how data transforms through the pipeline.
+
+Upstream DWM: https://bitbucket.org/oysterer/dwm-refactor-v1 — this file is part of
+the GitHub fork (data capture / truth columns / iteration exports); cite both when publishing.
 """
 
 import os

@@ -1,9 +1,20 @@
 cff-version: 1.2.0
 title: "Data Washing Machine (Classic)"
-message: "If you use this software, please cite it using the metadata below."
+message: >-
+  Cite the upstream Data Washing Machine refactor and this fork if you use this
+  software. The Bitbucket project is the authoritative source for the original
+  codebase; this repository adds data capture, reporting, and metrics extensions.
 authors:
   - name: "Taha Mohammed"
 repository-code: "https://github.com/MaTaha-ualr/DataWashingMachineClassic"
-license: MIT
+license-url: "https://github.com/MaTaha-ualr/DataWashingMachineClassic/blob/main/LICENSE"
 date-released: "2026-03-30"
-abstract: "Unsupervised data correction and entity resolution pipeline for tabular reference data (blocking, linking, clustering, metrics)."
+abstract: >-
+  Fork of dwm-refactor-v1 with added run-level data capture (CSV/JSON under
+  data_capture/), truth-aware exports, per-iteration blocking metrics, and
+  input-basenamed log/Excel outputs. Original DWM: Bitbucket oysterer/dwm-refactor-v1.
+references:
+  - type: software
+    title: "dwm-refactor-v1 (Data Washing Machine refactor)"
+    repository-code: "https://bitbucket.org/oysterer/dwm-refactor-v1"
+    abstract: "Upstream Python refactor of the Data Washing Machine; cite as the original implementation."
