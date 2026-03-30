@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: "Data Washing Machine (Classic)"
+message: "If you use this software, please cite it using the metadata below."
+authors:
+  - name: "Taha Mohammed"
+repository-code: "https://github.com/MaTaha-ualr/DataWashingMachineClassic"
+license: MIT
+date-released: "2026-03-30"
+abstract: "Unsupervised data correction and entity resolution pipeline for tabular reference data (blocking, linking, clustering, metrics)."
