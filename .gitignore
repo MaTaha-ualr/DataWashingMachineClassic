@@ -26,3 +26,24 @@ Thumbs.db
 
 # Local logs / outputs (regenerated when running DWM)
 *.log
+
+# DWM generated outputs
+data_capture/
+benchmark_runs/
+benchmark_runs_test/
+benchmark_runs_batch_test/
+colab_upload_build/
+*_ColabUpload.zip
+
+# Clean Colab bundle should stay source-only
+DWM_colab_bundle/__pycache__/
+DWM_colab_bundle/data_capture/
+DWM_colab_bundle/benchmark_runs/
+DWM_colab_bundle/benchmark_runs_test/
+DWM_colab_bundle/benchmark_runs_batch_test/
+DWM_colab_bundle/DWM_Log_*.txt
+DWM_colab_bundle/DWM_Results_*.xlsx
+DWM_colab_bundle/*-LinkIndex.txt
+
+# Dataset staging artifacts
+Data files/Data_Parms_Truth.zip
