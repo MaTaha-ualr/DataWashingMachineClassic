@@ -1,4 +1,4 @@
-Data Washing Machine (Classic) — attribution and terms
+Data Washing Machine Classic + CODA Comparator - attribution and terms
 
 1. Upstream source
 
@@ -8,23 +8,24 @@ Data Washing Machine (Classic) — attribution and terms
    https://bitbucket.org/oysterer/dwm-refactor-v1
 
    The original authors retain all rights to their work. Use, redistribution,
-   and modification of the upstream portions must follow the license and terms
+   and modification of upstream portions must follow the license and terms
    published with that project. If no license is shown there, treat those
-   portions as subject to the original authors’ copyright and obtain appropriate
+   portions as subject to the original authors' copyright and obtain appropriate
    permission before use beyond what the law allows.
 
 2. Modifications in this repository
 
-   Changes and additions made in this GitHub fork (for example data-capture
-   utilities, driver and reporting integration, and per-iteration blocking
-   metrics) are documented in README.md. Contributors to those modifications
-   should be credited when you cite or reuse this repository.
+   Changes and additions made in this GitHub fork include data-capture
+   utilities, driver/reporting integration, per-iteration blocking metrics,
+   benchmark runners, the cleaned Colab bundle, and CODA/TahaComparator-CX
+   comparator documentation and implementation. Contributors to those
+   modifications should be credited when you cite or reuse this repository.
 
 3. Attribution
 
    When you publish or redistribute material from this repository, cite both:
 
-   - the upstream Bitbucket project (link above), and
+   - the upstream Bitbucket project listed above, and
    - this repository if you rely on the modifications here:
      https://github.com/MaTaha-ualr/DataWashingMachineClassic
 
@@ -32,6 +33,6 @@ Data Washing Machine (Classic) — attribution and terms
 
 4. Disclaimer
 
-   This software is provided “as is,” without warranty of any kind, express or
+   This software is provided "as is", without warranty of any kind, express or
    implied. See the upstream project for any warranty or liability terms that
    may apply to the original code.

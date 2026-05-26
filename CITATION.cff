@@ -1,18 +1,21 @@
 cff-version: 1.2.0
-title: "Data Washing Machine (Classic)"
+title: "Data Washing Machine Classic + CODA Comparator"
 message: >-
-  Cite the upstream Data Washing Machine refactor and this fork if you use this
-  software. The Bitbucket project is the authoritative source for the original
-  codebase; this repository adds data capture, reporting, and metrics extensions.
+  Cite the upstream Data Washing Machine refactor for the original DWM
+  algorithm. Cite this repository if you use the CODA/TahaComparator-CX
+  comparator, cleaned Colab bundle, benchmark tooling, data capture, or local
+  documentation.
 authors:
   - name: "Taha Mohammed"
 repository-code: "https://github.com/MaTaha-ualr/DataWashingMachineClassic"
 license-url: "https://github.com/MaTaha-ualr/DataWashingMachineClassic/blob/main/LICENSE"
 date-released: "2026-03-30"
 abstract: >-
-  Fork of dwm-refactor-v1 with added run-level data capture (CSV/JSON under
-  data_capture/), truth-aware exports, per-iteration blocking metrics, and
-  input-basenamed log/Excel outputs. Original DWM: Bitbucket oysterer/dwm-refactor-v1.
+  Fork of dwm-refactor-v1 with a cleaned runnable Colab bundle, comparator
+  benchmark tooling, data-capture/reporting additions, and CODA
+  (Context-Driven Adaptive Comparator), implemented as TahaComparator-CX.
+  CODA combines frequency-derived token roles, self-weighted evidence scoring,
+  and ephemeral unresolved-pool context inside the DWM peel-off pipeline.
 references:
   - type: software
     title: "dwm-refactor-v1 (Data Washing Machine refactor)"
