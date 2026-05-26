@@ -1,18 +1,32 @@
 # CODA / TahaComparator-CX Technical Documentation
 
-CODA means **Context-Driven Adaptive Comparator**. In this repository it is implemented as the CX configuration of `TahaComparator`.
+CODA means **Context-Driven Adaptive Comparator**. In this repository, CODA is implemented as the CX configuration of `TahaComparator`.
 
-This document is written as the technical foundation for a paper. It explains the problem, the DWM pipeline context, the CODA mechanisms, the implementation, the evaluation setup, the results, and the limits of the current work.
+This document explains the mechanism in enough detail to support a paper draft. It focuses on the comparator design, not repository housekeeping.
 
 ## Abstract
 
-Entity-resolution systems must decide whether noisy records refer to the same real-world entity. In the Data Washing Machine (DWM), that decision is made inside an iterative peel-off pipeline: each iteration generates candidate pairs, links accepted pairs, forms clusters through transitive closure, accepts high-quality clusters, and removes accepted records before the next iteration. This creates a specific constraint for comparator design. The comparator can use local context from the current unresolved pool, but it cannot rely on a permanent global graph because the graph changes after every peel-off step.
+Entity resolution must decide whether two noisy records refer to the same real-world entity. In the Data Washing Machine (DWM), that decision happens inside an iterative peel-off pipeline: candidate pairs are generated, accepted edges are linked, connected components are formed, high-quality clusters are accepted, and accepted records are removed before the next iteration. This creates an important constraint. A comparator can use local context from the current unresolved pool, but it cannot rely on a permanent global graph because the active record pool changes after every peel-off step.
 
-CODA addresses this setting with three connected ideas. First, it infers soft token roles from the dataset's own frequency distribution, so tokens behave as identity, location, numeric, or volatile evidence without requiring schema labels or hand-written token lists. Second, it combines identity, context, numeric, and general similarity evidence through self-weighted scoring, so the strongest evidence for a pair naturally has more influence. Third, it builds an ephemeral provisional graph from confident first-pass edges and uses that graph only to adjust ambiguous pair scores before the normal DWM `mu` threshold makes the final decision.
+CODA addresses this setting with three mechanisms. First, it infers soft token roles from the dataset's own token-frequency distribution, so tokens can behave as identity, location, numeric, or volatile evidence without requiring schema labels. Second, it converts those roles into pair-level identity, context, numeric, similarity, and contradiction evidence, then combines the positive channels with self-weighted scoring. Third, it builds an ephemeral provisional graph from confident first-pass edges and uses that graph only to revise ambiguous pairs before the normal DWM `mu` threshold makes the final link decision.
 
-Across 22 datasets, CODA achieved average precision 0.932, average recall 0.845, and average F1 0.881, winning 19 of 22 F1 comparisons against the classic DWM comparator set without LLM review and without dataset-specific comparator constants.
+Across 22 benchmark datasets, CODA achieved average precision `0.932`, average recall `0.845`, and average F1 `0.881`. It won 19 of 22 F1 comparisons against the classic DWM comparator set in the reported no-LLM configuration.
 
-## 1. Terminology
+## 1. Core Claim
+
+CODA is not a new end-to-end entity-resolution system. It is a comparator-level method for DWM.
+
+The central claim is:
+
+```text
+CODA improves DWM pair decisions by making token meaning, evidence weighting,
+and local context data-adaptive while preserving DWM's mu threshold,
+epsilon threshold, transitive closure, and peel-off iteration semantics.
+```
+
+The claim is intentionally narrow. DWM still has pipeline parameters such as `mu`, `epsilon`, blocking settings, and iteration controls. CODA's contribution is that the comparator does not need dataset-specific internal constants for deciding which tokens behave like identity evidence, which tokens behave like context, and how ambiguous pairs should be revised by temporary local structure.
+
+## 2. Terminology
 
 | Term | Meaning |
 |------|---------|
@@ -22,16 +36,16 @@ Across 22 datasets, CODA achieved average precision 0.932, average recall 0.845,
 | comparator | module that scores a candidate pair and decides whether it should become an edge |
 | edge | accepted link between two records |
 | cluster | connected component produced by transitive closure over accepted edges |
-| unresolved pool | records not yet accepted into final clusters |
+| unresolved pool | records that have not yet been accepted into final clusters |
 | peel-off iteration | one DWM cycle that accepts clusters and removes them from the unresolved pool |
 | `mu` | DWM pair-link threshold |
 | `epsilon` | DWM cluster-acceptance threshold |
-| review band | score region where a pair is neither clear accept nor clear reject |
+| review band | score region where a pair is neither an obvious accept nor an obvious reject |
 | CODA | Context-Driven Adaptive Comparator, implemented as `TahaComparator-CX` |
 
-## 2. Problem Statement
+## 3. Problem Setting
 
-The comparator receives two flattened token lists and must decide whether they refer to the same entity. The difficult cases are not the obvious matches or obvious nonmatches. The difficult cases are pairs where some evidence agrees and some evidence conflicts:
+The comparator receives two flattened token lists and must decide whether they identify the same entity.
 
 ```text
 True match:
@@ -43,219 +57,238 @@ R1 = TOMMY ALAN NOEL 754 EMPIRE AVE    VENTURA CA 93003
 R3 = JAMES LEE  CHEN 754 EMPIRE AVENUE VENTURA CA 93003
 ```
 
-Both pairs share many address tokens. A flat token comparator can overvalue the shared address and undervalue the name disagreement. CODA is designed to separate these cases by asking:
+Both pairs share address evidence. A flat token comparator can overvalue the shared address and undervalue the name disagreement. CODA separates these cases by asking four questions:
 
-1. What kind of evidence does each token provide?
-2. Which evidence channel is strongest for this pair?
-3. Is there reliable local context from the current iteration that should refine an ambiguous score?
+1. What role does each token appear to play in this dataset?
+2. How much identity, context, numeric, and general similarity evidence does this pair have?
+3. Is there active contradiction, especially identity contradiction hidden by address agreement?
+4. If the pair is ambiguous, does local provisional context support or conflict with the link?
 
-## 3. Design Goals
+## 4. Design Goals
 
-CODA is guided by these design goals:
+| Goal | CODA Design Response |
+|------|----------------------|
+| preserve DWM behavior | keep `mu`, `epsilon`, transitive closure, and peel-off unchanged |
+| reduce false positives from shared context | separate identity evidence from address/location evidence |
+| recover borderline true matches | use provisional local context only for ambiguous pairs |
+| avoid schema dependence | infer token roles from frequency, position, shape, and rarity |
+| avoid dataset-specific comparator constants | derive token role behavior from the active token-frequency distribution |
+| remain auditable | store evidence scores, edge type, decision band, context adjustment, and final reason |
+| benchmark without LLM dependence | disable OpenAI review in the reported CODA benchmark |
 
-| Goal | Design Response |
-|------|-----------------|
-| avoid dataset-specific comparator constants | derive token roles from dataset frequency statistics |
-| preserve DWM semantics | keep `mu`, `epsilon`, transitive closure, and peel-off iteration unchanged |
-| reduce false positives from shared address/context | penalize contradiction when context dominates identity |
-| recover borderline true matches | use provisional context only for review-band pairs |
-| remain auditable | emit edge types and evidence values that explain a decision |
-| run without LLM review | keep optional LLM review disabled in the reported CODA benchmark |
+## 5. DWM Pipeline Context
 
-CODA does not try to replace DWM. It changes the pair-comparison decision while keeping the surrounding pipeline intact.
+DWM is iterative:
 
-## 4. DWM Pipeline Context
+1. select unresolved records
+2. tokenize records and compute token frequencies
+3. apply optional global token correction
+4. generate candidate pairs through blocking
+5. compare candidate pairs
+6. link accepted pairs
+7. compute transitive closure
+8. accept clusters whose quality is at least `epsilon`
+9. remove accepted clusters before the next iteration
 
-DWM is an iterative unsupervised entity-resolution pipeline. Each iteration:
-
-1. selects unresolved records
-2. tokenizes records and computes token frequencies
-3. applies optional global token correction
-4. creates candidate pairs through blocking
-5. compares candidate pairs
-6. links accepted pairs
-7. computes transitive closure
-8. accepts clusters whose quality is at least `epsilon`
-9. removes accepted clusters before the next iteration
-
-The comparator sits between blocking and transitive closure.
+CODA sits at step 5. Blocking determines which pairs CODA can see; CODA determines which candidate pairs become accepted edges.
 
 | Stage | Module | CODA-Relevant Role |
 |-------|--------|--------------------|
-| Tokenization | `DWM14_BuildRefDict.py` | creates token lists used by CODA |
-| Token frequencies | `DWM16_BuildTokenFreqDict.py` | provides frequency statistics for token roles |
+| Tokenization | `DWM14_BuildRefDict.py` | creates token lists |
+| Token frequencies | `DWM16_BuildTokenFreqDict.py` | supplies frequency statistics for role inference |
 | Blocking | `DWM42_BuildBlockPairs.py` | sets the candidate-pair recall ceiling |
-| Pair linking | `DWM55_LinkBlockPairs.py` | orchestrates CODA comparison and provisional context pass |
-| Comparator | `DWM67_Tahacomparator.py` | implements role inference, evidence scoring, edge typing, and context adjustment |
-| Transitive closure | `DWM80_TransitiveClosure.py` | turns accepted edges into clusters |
+| Pair linking | `DWM55_LinkBlockPairs.py` | calls `compare_pair`, then applies provisional context |
+| Comparator | `DWM67_Tahacomparator.py` | implements CODA mechanisms |
+| Transitive closure | `DWM80_TransitiveClosure.py` | turns accepted edges into connected components |
 | Cluster acceptance | `DWM90_IterateClusters.py` | accepts clusters above `epsilon` |
 | Metrics | `DWM99_ERmetrics.py` | computes precision, recall, and F-measure |
 
-### Why Peel-Off Matters
+### Why Temporary Context Is Necessary
 
-DWM is not a static graph algorithm. After an iteration accepts a cluster, those records leave the unresolved pool. A graph built in iteration 1 may not be valid in iteration 2. This affects comparator design:
+In a one-shot graph algorithm, it may be natural to build a global graph and reason over it. DWM is different. After each iteration, accepted records are removed from the unresolved pool. A global context graph from one iteration can become stale in the next.
 
-- persistent global context would violate the changing unresolved-pool structure
-- local context must be recomputed each iteration
-- context should refine pair decisions, not create a separate global clustering rule
+CODA therefore uses **ephemeral context**:
 
-CODA's provisional graph is intentionally temporary for this reason.
+- build provisional components only from the current iteration's confident edges
+- use those components only to refine ambiguous pairs
+- discard the provisional graph after the iteration
+- let DWM's normal transitive closure and cluster acceptance make the final cluster-level decisions
 
-## 5. Data Representation
+This is the key compatibility point between CODA and DWM.
 
-The benchmark records contain PII-like fields: names, addresses, and sometimes SSN or date of birth. The tokenizer flattens fields into a single ordered token list:
+## 6. Record Representation
+
+The benchmark records contain PII-like fields: names, addresses, and sometimes SSN or date of birth. The comparator sees flattened token lists:
 
 ```text
-A965806: [TOMMY, ALAN, NOEL, 754, EMPIRE, AVE, VENTURA, CA, 93003, ...]
+A965806: [TOMMY, ALAN, NOEL, 754, EMPIRE, AVE, VENTURA, CA, 93003]
          |---- name ----|    |--------- address ---------|
 ```
 
-The field boundary is not explicitly represented inside the comparator. CODA must infer evidence roles from observable signals:
+The field boundary is not explicitly stored in the comparator input. CODA reconstructs evidence roles from observable signals:
 
 - token position
 - first digit position
 - token frequency
 - token length
-- alphabetic versus numeric shape
-- rarity within the dataset
-- name/address similarity details from the Taha comparator foundation
+- alphabetic, numeric, or mixed shape
+- token rarity in the active dataset
+- name and address similarity details computed by the Taha comparator foundation
 
-This is why CODA is described as schema-light. It can use the ordering and token statistics without requiring a formal schema alignment step.
+CODA is therefore schema-light. It benefits from the common ordering of name-like tokens before address-like tokens, but it does not require formal field labels for every token.
 
-## 6. Baseline Comparator Problem
+## 7. Baseline Comparator Limitation
 
-The classic DWM comparators all produce a score in `[0, 1]`:
+Classic DWM comparators produce a score in `[0, 1]`.
 
 | Comparator | General Behavior |
 |------------|------------------|
-| Cosine | bag-of-words similarity over token lists |
-| MongeElkan | best token alignment from shorter record to longer record |
+| Cosine | bag-of-words overlap over token lists |
+| MongeElkan | best token alignment from one record to another |
 | ScoringMatrixStd | edit-distance matrix with greedy token matching |
-| ScoringMatrixKris | refined scoring matrix with positional weighting |
+| ScoringMatrixKris | scoring matrix with additional positional behavior |
 | TahaComparator baseline | name/address decomposition, deterministic rules, optional LLM review |
 
-These approaches are useful, but the difficult cases require more structure than one flat score. The key limitations are:
+These methods are useful, but difficult cases require more than one flat score:
 
-- shared common tokens can be overvalued
+- common tokens can be overvalued
 - address agreement can hide name disagreement
-- fixed evidence weights do not fit every pair
-- ambiguous pairs need context, but DWM cannot use a permanent global graph
+- a fixed name/address weighting is fragile across datasets
+- local context can help ambiguous pairs, but DWM cannot use a permanent global graph
 
-CODA addresses these limitations directly.
+CODA keeps the useful Taha comparator foundation and adds adaptive role inference, adaptive evidence scoring, and temporary context.
 
-## 7. CODA Architecture Overview
+## 8. CODA Architecture
 
-CODA has three mechanisms:
+CODA has three main mechanisms:
 
-1. **Statistical token role inference**: infer soft token roles from dataset statistics.
-2. **Self-weighted evidence scoring**: combine evidence channels according to their own strength.
-3. **Ephemeral provisional context**: refine ambiguous scores using temporary local graph evidence.
+1. **Statistical token role inference**
+   Each token receives soft weights over identity, location, numeric, and volatile roles.
+
+2. **Self-weighted evidence scoring**
+   Pair-level identity, context, numeric, and similarity channels are combined according to their own strength, with a contradiction penalty when context tries to overpower identity.
+
+3. **Ephemeral provisional context**
+   Strong first-pass edges form temporary components. Ambiguous pairs are revised using local support and conflict, then compared to `mu`.
 
 The high-level flow is:
 
 ```text
 candidate pair
-  -> token/name/address comparison
+  -> token similarity and name/address details
   -> soft token role inference
   -> identity/context/numeric/contradiction evidence
-  -> self-weighted base score
-  -> deterministic guard rules
-  -> edge type classification
-  -> provisional context adjustment for review-band pairs
-  -> final comparison to mu
+  -> self-weighted base edge score
+  -> deterministic guard rules and initial decision band
+  -> provisional component construction from confident edges
+  -> context adjustment for ambiguous pairs only
+  -> final decision by revised score versus mu
 ```
 
-The design principle is:
+The invariant is:
 
 ```text
-context refines the score; mu still decides
+context can revise the score; mu still decides the pair link.
 ```
 
-## 8. Mechanism 1: Statistical Token Role Inference
+## 9. Mechanism 1: Statistical Token Role Inference
 
-### 8.1 Motivation
+### 9.1 Motivation
 
-In a flattened record, tokens do not announce whether they are names, address words, ID numbers, or weak common tokens. CODA infers that role from data instead of hardcoding it.
+Tokens do not all carry the same evidence. Sharing `NOEL` is stronger identity evidence than sharing `CA`. Sharing `754` is useful numeric/address evidence, but it is not the same as sharing a last name. CODA needs this distinction before it can reason about a pair.
 
-Two records sharing `NOEL` is more meaningful than two records sharing `CA`. Two records sharing `754` may be strong address evidence, but not necessarily identity evidence. CODA needs these distinctions before it can compare pairs correctly.
+Instead of using a hand-written dictionary, CODA infers soft roles from the active dataset.
 
-### 8.2 Role Types
+### 9.2 Role Types
 
-Each token receives soft weights over four roles:
+Each token receives normalized weights over four roles.
 
 | Role | Meaning |
 |------|---------|
-| identity | name-like or rare entity-identifying evidence |
-| location | address, city, state, street, or place-like evidence |
-| numeric | digit-bearing evidence such as street number, ZIP code, SSN-like value |
-| volatile | weak, common, short, suffix-like, or low-discrimination evidence |
+| identity-like | name-like or rare entity-identifying evidence |
+| location-like | address, street, city, state, or place-like evidence |
+| numeric-like | digit-bearing values such as street numbers, ZIP codes, SSN-like values, unit numbers |
+| volatile/noise | short, common, suffix-like, weak, or unstable evidence |
 
-The weights are soft, not hard. A token can be partly location and partly volatile. A rare street name can be mostly location with some identity-like value.
+The roles are soft. A token can be partly location-like and partly volatile. A rare street token can be mostly location-like while still having some identity value because it helps discriminate records.
 
-### 8.3 Rarity Signal
+### 9.3 Dataset Statistics
 
-CODA computes rarity from the token frequency distribution:
+At the start of a TahaComparator run, `start_run(tokenFreqDict)` computes dataset-level frequency statistics:
+
+- frequency percentiles: p25, p50, p75, p90, p95
+- maximum frequency
+- log maximum frequency
+- total token count
+- unique token count
+- average frequency
+
+The main rarity signal is:
 
 ```text
 rarity(t) = 1 - log(1 + freq(t)) / log(1 + max_freq)
 ```
 
-Where:
+High rarity means the token is uncommon in the current dataset. Low rarity means the token is common. This makes role inference relative to the current dataset instead of tied to one fixed benchmark.
 
-- `freq(t)` is the frequency of token `t`
-- `max_freq` is the highest token frequency in the dataset
+### 9.4 Signals Used For Roles
 
-This scales automatically. If a token is rare in the current dataset, rarity is high. If it is common, rarity is low. The formula avoids fixed thresholds such as "frequency <= 8 is rare" as the primary decision rule.
+| Signal | Role Effect |
+|--------|-------------|
+| before first digit | increases identity-like weight |
+| after first digit | increases location-like weight |
+| contains digit | increases numeric-like weight and some location support |
+| alphabetic before first digit | increases identity-like weight |
+| alphabetic after first digit | increases location-like weight |
+| high rarity | increases identity-like evidence |
+| high frequency | increases volatile/noise evidence |
+| short token | increases volatile/noise evidence |
+| mixed alphanumeric token | increases numeric/location behavior and volatility |
+| name suffix token | increases volatility and reduces identity weight |
 
-### 8.4 Observable Signals
+The implementation normalizes the accumulated role weights so each token has an interpretable role distribution.
 
-CODA combines several signals:
-
-| Signal | Typical Contribution |
-|--------|----------------------|
-| before first digit | identity |
-| after first digit | location |
-| contains digits | numeric |
-| high rarity | identity |
-| low rarity and short length | volatile |
-| alphabetic after digit | location |
-| rare long alphabetic token | identity support |
-| suffix-like short token | volatile |
-
-### 8.5 Role-Inference Pseudocode
+### 9.5 Role-Inference Pseudocode
 
 ```text
-for token in record_tokens:
-    role = {identity: 0, location: 0, numeric: 0, volatile: 0}
+for token in normalized_record_tokens:
+    rarity = rarity_from_dataset_frequency(token)
+    before_digit = token_index < first_digit_index(record)
+    has_digit = token_contains_digit(token)
+    alpha = token_is_alphabetic(token)
+    short = token_length <= 2
 
-    rarity = rarity_from_frequency(token)
-    position = token_index / record_length
-    is_numeric = token_contains_digit(token)
-    is_short = token_length <= 2
-    before_address = token_index < first_digit_index
+    identity = 0
+    context = 0
+    numeric = 0
+    volatile = 0
 
-    if before_address:
-        role.identity += position_adjusted_identity_signal
+    if before_digit:
+        identity += position_weighted_identity_signal
     else:
-        role.location += address_region_signal
+        context += address_region_signal
 
-    if is_numeric:
-        role.numeric += numeric_signal
-        role.location += numeric_location_support
+    if has_digit:
+        numeric += numeric_signal
+        context += numeric_location_support
+    else if alpha and before_digit:
+        identity += alphabetic_name_region_signal
+    else if alpha:
+        context += alphabetic_address_region_signal
 
-    if token_is_alphabetic:
-        role.identity += rarity_signal
-        role.location += common_address_signal
+    if alpha:
+        identity += rarity_signal
+        context += commonness_as_context_signal
 
-    if is_short or token_is_very_common:
-        role.volatile += weak_token_signal
+    if token_is_common_or_short_or_suffix_like:
+        volatile += weak_token_signal
 
-    normalize role so all role weights sum to 1
+    normalize(identity, context, numeric, volatile)
 ```
 
-The actual code is in `_compute_dataset_stats` and `_infer_soft_token_roles` in `DWM67_Tahacomparator.py`.
+Code location: `_compute_dataset_stats`, `_infer_soft_token_roles`, `_role_weight_map`, and `_weighted_overlap_from_maps` in `DWM67_Tahacomparator.py`.
 
-### 8.6 Example Interpretation
+### 9.6 Example
 
 For:
 
@@ -263,392 +296,461 @@ For:
 [TOMMY, ALAN, NOEL, 754, EMPIRE, AVE, VENTURA, CA, 93003]
 ```
 
-CODA should interpret the tokens roughly as:
+CODA should tend toward:
 
-| Token Type | Expected Interpretation |
-|------------|-------------------------|
-| `TOMMY`, `ALAN`, `NOEL` | mostly identity |
-| `754`, `93003` | mostly numeric with location support |
-| `EMPIRE`, `VENTURA` | mostly location, potentially informative if rare |
-| `AVE`, `CA` | location plus volatile/common-token evidence |
+| Token | Expected Role Behavior |
+|-------|------------------------|
+| `TOMMY`, `ALAN`, `NOEL` | mostly identity-like |
+| `754`, `93003` | mostly numeric-like with location support |
+| `EMPIRE`, `VENTURA` | mostly location-like, with more value if rare |
+| `AVE`, `CA` | location-like but also volatile/common |
 
-The point is not that CODA knows these labels from a dictionary. The point is that the dataset statistics and token shape make these roles emerge.
+The important point is not that CODA knows a state dictionary or street-suffix dictionary. It is that frequency, position, and token shape make these behaviors emerge.
 
-## 9. Mechanism 2: Self-Weighted Evidence Scoring
-
-### 9.1 Motivation
-
-Fixed evidence weights are fragile. A pair with strong name evidence and weak address evidence should not be treated the same as a pair with weak name evidence and strong address evidence. CODA lets evidence channels influence the score according to their own strength.
-
-### 9.2 Evidence Channels
-
-CODA computes these channels:
-
-| Channel | Measures | Risk If Ignored |
-|---------|----------|-----------------|
-| identity | agreement among name-like and rare tokens | true identity evidence is diluted |
-| context | agreement among location/address-like tokens | useful address evidence is lost |
-| numeric | agreement among digit-bearing values | strong numeric agreement is underused |
-| similarity | general token similarity | baseline edit/token similarity is discarded |
-| contradiction | active disagreement, especially in identity evidence | false positives from shared context increase |
-
-### 9.3 Positive Evidence Formula
-
-The positive channels are combined as:
-
-```text
-total = identity + context + numeric + similarity
-base_score = (identity^2 + context^2 + numeric^2 + similarity^2) / total
-```
-
-This is strength-proportional. A channel with value `0.90` contributes `0.81`; a channel with value `0.20` contributes `0.04`. Strong evidence naturally dominates weak evidence.
-
-If all channels are weak, the score stays weak. If multiple channels are strong, the score rises. If one channel is strong and the others are weak, the score reflects that imbalance.
-
-### 9.4 Contradiction Penalty
-
-Contradiction is not applied equally in every case. It matters most when context is trying to overpower identity:
-
-```text
-penalty = 0.5 * contradiction * max(0, context - identity)
-revised_base = base_score - penalty
-```
-
-This targets same-household false positives. If two people share an address, context can be high even when identity is low. CODA penalizes that situation.
-
-### 9.5 True Match Versus Same-Household Pair
-
-```text
-True match:
-R1 = TOMMY ALAN NOEL 754 EMPIRE AVE    VENTURA CA 93003
-R2 = TOMMY      NOEL 754 EMPIRE AVENUE VENTYRA CA 93003
-
-Same-household nonmatch:
-R1 = TOMMY ALAN NOEL 754 EMPIRE AVE    VENTURA CA 93003
-R3 = JAMES LEE  CHEN 754 EMPIRE AVENUE VENTURA CA 93003
-```
-
-The true match has:
-
-- strong identity agreement
-- strong numeric agreement
-- address spelling/abbreviation noise that is recoverable
-- low contradiction
-
-The same-household pair has:
-
-- strong context agreement
-- strong numeric/address agreement
-- weak identity agreement
-- high contradiction
-
-A flat comparator may score both pairs similarly because both share address tokens. CODA separates them because it understands that shared address is not enough when identity conflicts.
-
-### 9.6 Code Location
-
-The main evidence logic is in `_soft_role_evidence` in `DWM67_Tahacomparator.py`. Pair-level orchestration is handled by `compare_pair`.
-
-## 10. Mechanism 3: Ephemeral Provisional Context
+## 10. Mechanism 2: Self-Weighted Evidence Scoring
 
 ### 10.1 Motivation
 
-Some pairs land just below `mu`. They may be real matches with small spelling errors, missing middle names, abbreviations, or OCR noise. Pairwise evidence alone may not be enough.
+A fixed evidence formula such as "60 percent name, 30 percent address, 10 percent numeric" assumes all ambiguous pairs have the same evidence pattern. They do not.
 
-The earlier comparator could send some of these pairs to LLM review. CODA instead uses local graph evidence from the current DWM iteration, while still allowing optional LLM review if configured.
+Some pairs have strong names and noisy addresses. Some have identical addresses and different people. Some have strong numeric agreement but weak identity evidence. CODA therefore computes evidence channels first, then lets their strengths determine the combined score.
 
-### 10.2 Two-Pass Comparator
+### 10.2 Weighted Token Overlap
 
-CODA uses two passes:
+For a role-specific token map, CODA computes overlap with a weighted Jaccard-style formula:
+
+```text
+overlap(role) = sum_t min(weight_1(t), weight_2(t))
+                / sum_t max(weight_1(t), weight_2(t))
+```
+
+This is computed separately for identity-like, location-like, and numeric-like roles.
+
+### 10.3 Evidence Channels
+
+| Channel | What It Measures |
+|---------|------------------|
+| identity evidence | structured name similarity blended with identity-role overlap and rare shared identity tokens |
+| context evidence | structured address similarity blended with location and numeric overlap |
+| numeric evidence | overlap among digit-bearing role weights |
+| similarity evidence | baseline ScoringMatrix-style token similarity |
+| contradiction | name disagreement, amplified when context is stronger than identity |
+
+### 10.4 Identity Evidence
+
+The implementation first computes structured identity from name-level details:
+
+```text
+structured_identity = mean(name_similarity,
+                           last_name_similarity,
+                           name_positional_similarity)
+```
+
+Then it blends structured identity with identity-role overlap and a rare-identity bonus:
+
+```text
+identity_evidence =
+    mean(structured_identity, identity_overlap, rare_identity_bonus)
+```
+
+If there is no role overlap and no rare-identity bonus, CODA falls back to structured identity.
+
+### 10.5 Context Evidence
+
+The implementation computes structured context from address similarity and address-number similarity:
+
+```text
+structured_context = mean(address_similarity,
+                          address_number_similarity)
+```
+
+Then it blends structured context with location-role and numeric-role overlap:
+
+```text
+context_evidence =
+    mean(structured_context, context_overlap, numeric_overlap)
+```
+
+If there is no context or numeric overlap, CODA falls back to structured context.
+
+### 10.6 Contradiction
+
+Contradiction is mainly identity disagreement. It is especially dangerous when address/context evidence is high.
+
+```text
+name_conflict = mean(1 - last_name_similarity,
+                     1 - first_name_similarity)
+
+context_identity_gap = max(0, context_evidence - identity_evidence)
+
+contradiction =
+    name_conflict * (0.5 + 0.5 * context_identity_gap)
+```
+
+This is how CODA targets same-household false positives. If address agreement is high but first/last names disagree, the pair should not be treated as a confident match.
+
+### 10.7 Self-Weighted Base Edge Score
+
+CODA combines positive evidence channels with weights proportional to their own values:
+
+```text
+total = identity + context + numeric + similarity
+
+base_score =
+    (identity^2 + context^2 + numeric^2 + similarity^2) / total
+    - 0.5 * contradiction * max(0, context - identity)
+```
+
+This formula has two useful properties:
+
+- strong evidence contributes more than weak evidence
+- context-driven matches are penalized when identity evidence is weak and contradiction is high
+
+If all channels are weak, the score remains weak. If several channels agree, the score rises. If address evidence is strong but identity conflicts, the contradiction penalty pushes the score down.
+
+### 10.8 Example Interpretation
+
+For the true match:
+
+```text
+TOMMY ALAN NOEL 754 EMPIRE AVE VENTURA CA 93003
+TOMMY      NOEL 754 EMPIRE AVENUE VENTYRA CA 93003
+```
+
+CODA should see:
+
+- strong identity evidence from `TOMMY` and `NOEL`
+- strong numeric evidence from `754` and `93003`
+- usable context evidence despite spelling and abbreviation noise
+- low identity contradiction
+
+For the same-household nonmatch:
+
+```text
+TOMMY ALAN NOEL 754 EMPIRE AVE VENTURA CA 93003
+JAMES LEE  CHEN 754 EMPIRE AVENUE VENTURA CA 93003
+```
+
+CODA should see:
+
+- strong address/context evidence
+- strong numeric evidence
+- weak identity evidence
+- high identity contradiction
+
+This separation is the main reason CODA is more robust than a flat token overlap score.
+
+Code location: `_soft_role_evidence` in `DWM67_Tahacomparator.py`.
+
+## 11. Mechanism 3: Ephemeral Provisional Context
+
+### 11.1 Motivation
+
+Some true matches land near the decision boundary because of missing tokens, spelling noise, abbreviation, or uneven tokenization. Pairwise evidence alone may be inconclusive.
+
+CODA uses local context, but only in a restricted way:
+
+- it builds context from confident first-pass edges
+- it applies context only to ambiguous pairs
+- it discards context after the current DWM iteration
+- it still requires the revised score to satisfy `mu`
+
+### 11.2 Two-Pass Flow
+
+`DWM55_LinkBlockPairs.py` calls `compare_pair` for every TahaComparator candidate pair. These first-pass decisions are stored in `tahaDecisionList`. After all pairs are scored, `DWM55_LinkBlockPairs.py` calls:
+
+```python
+Class.apply_provisional_context_pass(tahaDecisionList, refDict)
+```
+
+The two-pass flow is:
 
 ```text
 Pass 1:
-    compare every candidate pair
-    compute evidence and base score
+    score every candidate pair
+    compute name/address details
+    compute CODA evidence
     apply deterministic guard rules
-    assign edge type
-    keep strong edges for provisional context
-    hold ambiguous review-band pairs
+    assign initial decision and edge type
 
 Pass 2:
-    build provisional components from strong edges
-    compute local support/conflict for review-band pairs
-    adjust the score
+    build provisional components from confident edges
+    compute local support and local conflict for each decision row
+    revise only ambiguous review-band decisions
     compare revised score to mu
 ```
 
-This happens inside `DWM55_LinkBlockPairs.py` and `DWM67_Tahacomparator.py`.
+### 11.3 Initial Decisions Versus Edge Types
 
-### 10.3 Edge Types
+The implementation separates **initial decision bands** from **edge types**.
 
-Each pair receives an interpretable edge type:
+Initial decisions include:
+
+| Initial Decision | Meaning |
+|------------------|---------|
+| `accept` | first-pass score/rule is strong enough to accept |
+| `reject` | pair is below cutoff or rejected by a rule |
+| `llm_review` | pair is ambiguous and should be deferred for context or optional review |
+| `pending_llm` | optional review is enabled but not yet resolved |
+
+Edge types include:
 
 | Edge Type | Meaning |
 |-----------|---------|
-| `must_link` | very strong match evidence |
-| `likely_link` | strong enough to help provisional context |
-| `review_band` | ambiguous pair that may need context |
-| `context_only_overlap` | context is stronger than identity, risky for false positives |
-| `likely_nonmatch` | weak evidence |
-| `cannot_link` | strong contradiction or very weak match evidence |
+| `must_link` | very strong evidence with low contradiction |
+| `likely_link` | strong evidence that may support provisional context |
+| `context_only_overlap` | score is driven by context more than identity |
+| `likely_nonmatch` | weak or insufficient evidence |
+| `cannot_link` | very weak score or strong contradiction |
 
-Only strong edges are allowed to form provisional components. Rejected or risky context-only pairs do not become graph support.
+This distinction matters. The review band is a routing decision; it is not itself an edge type.
 
-### 10.4 Provisional Component Logic
+### 11.4 Provisional Component Construction
 
-CODA builds a temporary union-find graph:
+CODA builds a temporary union-find graph from confident first-pass edges.
 
-```text
-for decision in pass_1_decisions:
-    if decision.edge_type in {must_link, strong likely_link}:
-        union(record_a, record_b)
+An edge can support the provisional graph if it is:
 
-for component in union_find_components:
-    build a component profile from member token roles
-```
+- `must_link`, or
+- a strong `likely_link` with enough score, identity support, and low contradiction, or
+- above the must-link threshold with low contradiction
 
-For a review-band pair, CODA checks whether local structure supports the link:
+Risky context-only edges and rejected pairs do not become provisional graph support.
 
-- do the records connect to the same provisional component?
-- do their tokens align with the other component's profile?
-- do they share reliable provisional neighbors?
-- does local evidence suggest conflict?
-
-### 10.5 Context Adjustment
-
-Context adjusts the score:
+The graph is used to build component profiles:
 
 ```text
-context_adjustment = (local_support - local_conflict) * abs(cluster_impact)
-revised_score = base_score + context_adjustment
+component profile =
+    stable identity tokens
+    context tokens
+    numeric tokens
+    component size
 ```
 
-Then DWM still decides:
+Stable identity tokens are not just shared tokens. They must appear consistently enough inside the component and carry enough identity-like role weight.
+
+### 11.5 Local Support And Local Conflict
+
+For a review-band pair, CODA compares each record against the other record's provisional component profile.
+
+It computes:
+
+| Signal | Meaning |
+|--------|---------|
+| profile alignment | how well a record fits the other side's component profile |
+| shared neighbor ratio | whether both records connect to similar provisional neighbors |
+| local support | blended profile alignment and shared-neighbor support |
+| local conflict | missing identity alignment or context-dominated disagreement |
+| cluster impact | `local_support - local_conflict`, clamped to `[-1, 1]` |
+
+Identity support has the largest weight in profile alignment. Context and numeric support help, but they cannot replace identity alignment.
+
+### 11.6 Context Adjustment
+
+For ambiguous review-band pairs, CODA revises the score:
 
 ```text
-accept if revised_score >= mu and identity >= context
+context_adjustment =
+    (local_support - local_conflict) * abs(cluster_impact)
+
+revised_score =
+    clamp(base_edge_score + context_adjustment)
 ```
 
-This prevents local context from becoming a separate matching rule.
+Then the final decision is made:
 
-### 10.6 What Context Can And Cannot Do
+```text
+if revised_score >= mu and identity_evidence > context_evidence:
+    accept
+else:
+    reject or optional review
+```
 
-Context can:
+If OpenAI review is disabled, context-driven pairs above `mu` are rejected when identity does not dominate context. This preserves CODA's safety rule: address/context cannot become a match by itself.
 
-- rescue a borderline true match when local evidence supports it
-- lower confidence when local evidence conflicts
-- help with missing middle names, abbreviations, and minor spelling noise
+Code location: `_build_provisional_components`, `_component_context_summary`, `_finalize_context_decision`, and `apply_provisional_context_pass` in `DWM67_Tahacomparator.py`.
 
-Context cannot:
+## 12. Deterministic Guard Rules
 
-- override `mu`
-- create a permanent graph across DWM iterations
-- turn address-only agreement into a match when identity is weaker than context
-- replace identity evidence with neighborhood evidence
-
-This is the main safety property of CODA's context mechanism.
-
-## 11. Deterministic Guard Rules
-
-CODA keeps deterministic guard rules from the Taha comparator because some cases should not rely on the softer evidence score.
+CODA keeps deterministic guard rules because some cases should not depend on a soft score.
 
 | Rule | Purpose |
 |------|---------|
 | poison address reject | reject high-address-similarity pairs when name evidence is too weak |
 | core name conflict reject | reject pairs with strong first/last-name conflict |
-| strong name accept | accept very strong identity matches when other evidence is sufficient |
+| strong name accept | accept very strong identity matches when the total similarity is not too low |
 
-These rules handle clear cases before provisional context. They are guardrails, not the main novelty. CODA's main contribution is replacing fixed internal comparator constants with adaptive role inference, self-weighted evidence, and temporary context.
-
-## 12. Score Bands And Decision Outcomes
-
-Before provisional context is applied, each candidate pair receives an initial decision. This stage uses the raw token similarity, the DWM `mu` threshold, deterministic guard rules, and CODA evidence values.
-
-The main bands are:
-
-| Band | Meaning | Typical Outcome |
-|------|---------|-----------------|
-| below reject cutoff | pair is too weak for normal review | reject, unless identity evidence clearly deserves review |
-| review band | pair is ambiguous | hold for provisional context and optional review |
-| above auto-accept region | pair is strong | accept unless the evidence is context-only |
-
-The review-band design is important because CODA does not want every uncertain pair to become a graph edge. Ambiguous pairs are delayed until the provisional context pass has enough information from strong first-pass edges.
-
-### Identity Bridge
-
-Some pairs fall below the usual review band but still have stronger identity evidence than the raw token similarity suggests. CODA can mark these as review candidates instead of rejecting them immediately. This is useful when:
-
-- names match strongly but some address tokens are missing
-- the token list is short
-- spelling or abbreviation differences reduce raw similarity
-- identity evidence dominates context evidence
-
-### Context-Only Review
-
-Some pairs score high because the address is very similar, but the identity evidence is weak. These are dangerous because they often represent roommates, family members, or unrelated people at the same address. CODA marks these as context-only overlap cases and avoids treating them as confident matches.
-
-The policy is conservative:
-
-```text
-high score + identity-driven evidence -> candidate for accept
-high score + context-driven evidence  -> review or reject
-```
-
-This is one of the main differences between CODA and a flat similarity comparator.
+These rules are guardrails. The CODA contribution is the adaptive evidence system around them.
 
 ## 13. Complete Decision Flow
 
 For each candidate pair:
 
-1. read flattened token lists
+1. remove stop words according to DWM blocking/comparison settings
 2. compute ScoringMatrix-style token similarity
-3. split records into likely name and address regions
-4. compute name and address similarity details
-5. infer soft token roles from dataset frequency statistics
+3. compute name similarity details
+4. compute address similarity details
+5. infer soft token roles from dataset statistics
 6. compute identity, context, numeric, similarity, and contradiction evidence
-7. compute self-weighted base score
+7. compute the self-weighted base edge score
 8. apply deterministic guard rules
-9. assign edge type
-10. build provisional components from strong pass-1 edges
-11. adjust review-band pair scores using local context
-12. accept only if revised score satisfies `mu` and identity is not dominated by context
-13. pass accepted edges to transitive closure
+9. assign first-pass initial decision and edge type
+10. build provisional components from confident first-pass edges
+11. compute local support, conflict, shared-neighbor ratio, and cluster impact
+12. revise review-band pair scores only
+13. accept only when the final score satisfies `mu` and identity evidence dominates context evidence
+14. pass accepted edges back to DWM for transitive closure
 
-The key invariant is:
+## 14. Decision Trace Fields
 
-```text
-CODA can change the score, but DWM's mu threshold makes the final pair-link decision.
-```
+CODA is designed to be inspectable. Each decision row can store:
 
-## 14. How The Three Mechanisms Work Together
+| Field | Meaning |
+|-------|---------|
+| `similarity` | baseline token similarity |
+| `name_similarity` | structured name similarity |
+| `first_name_similarity` | first-name similarity |
+| `last_name_similarity` | last-name similarity |
+| `name_positional_similarity` | positional name agreement |
+| `address_similarity` | structured address similarity |
+| `address_number_similarity` | numeric address agreement |
+| `identity_evidence_score` | CODA identity channel |
+| `context_evidence_score` | CODA context channel |
+| `contradiction_score` | identity conflict, amplified by context dominance |
+| `base_edge_score` | self-weighted score before provisional context |
+| `final_edge_score` | score after context pass |
+| `local_support_score` | provisional context support |
+| `local_conflict_score` | provisional context conflict |
+| `cluster_impact` | net local effect |
+| `shared_neighbor_ratio` | overlap of provisional neighbors |
+| `edge_type` | interpretable evidence type |
+| `initial_decision` | first-pass routing decision |
+| `final_decision` | final accept/reject/pending decision |
+| `reason` | final decision reason |
 
-| Problem | CODA Mechanism | Effect |
-|---------|----------------|--------|
-| tokens lack explicit meaning | statistical role inference | gives each token an evidence profile |
-| evidence differs by pair | self-weighted scoring | lets strong channels dominate weak channels |
-| borderline pairs need more signal | provisional context | adds local support/conflict without overriding `mu` |
-
-The mechanisms are sequential:
-
-1. role inference defines what evidence each token can provide
-2. evidence scoring uses those roles to compute pair-level signals
-3. provisional context uses first-pass pair decisions to refine only ambiguous pairs
-
-This makes the comparator explainable. A decision can be traced through token roles, evidence channels, edge type, context adjustment, and final threshold comparison.
+This trace is important for paper analysis because it allows examples to be explained mechanically rather than only by aggregate F1.
 
 ## 15. Implementation Map
 
 | Component | File | Key Functions |
 |-----------|------|---------------|
-| dataset statistics | `DWM67_Tahacomparator.py` | `_compute_dataset_stats` |
-| soft role inference | `DWM67_Tahacomparator.py` | `_infer_soft_token_roles` |
+| dataset statistics | `DWM67_Tahacomparator.py` | `_compute_dataset_stats`, `start_run` |
+| soft role inference | `DWM67_Tahacomparator.py` | `_infer_soft_token_roles`, `_role_weight_map` |
+| weighted overlap | `DWM67_Tahacomparator.py` | `_weighted_overlap_from_maps` |
 | evidence scoring | `DWM67_Tahacomparator.py` | `_soft_role_evidence` |
 | edge typing | `DWM67_Tahacomparator.py` | `_edge_type_from_scores` |
-| deterministic guard rules | `DWM67_Tahacomparator.py` | `_deterministic_rule_decision` |
+| deterministic guard rules | `DWM67_Tahacomparator.py` | `_deterministic_rule_decision`, `_name_rule_reject` |
 | provisional graph | `DWM67_Tahacomparator.py` | `_build_provisional_components` |
-| context decision | `DWM67_Tahacomparator.py` | `_finalize_context_decision`, `apply_provisional_context_pass` |
+| component profile | `DWM67_Tahacomparator.py` | `_build_profile_from_members`, `_profile_alignment` |
+| context decision | `DWM67_Tahacomparator.py` | `_component_context_summary`, `_finalize_context_decision`, `apply_provisional_context_pass` |
 | pair entry point | `DWM67_Tahacomparator.py` | `compare_pair` |
 | two-pass orchestration | `DWM55_LinkBlockPairs.py` | `linkBlockPairs` |
-| benchmark runner | `DWM_Comparator_Benchmark.py` | single-dataset benchmark |
-| multi-dataset runner | `DWM_AllDatasets_Benchmark.py` | 22-dataset benchmark |
+| single-dataset benchmark | `DWM_Comparator_Benchmark.py` | benchmark CLI |
+| multi-dataset benchmark | `DWM_AllDatasets_Benchmark.py` | 22-dataset benchmark CLI |
 
-## 16. Parameterization And Runtime Behavior
+## 16. Parameterization
 
-CODA still runs inside DWM, so there are two categories of parameters.
+CODA runs inside DWM, so there are two parameter layers.
 
-The first category is normal DWM pipeline control:
+### 16.1 DWM Pipeline Parameters
 
 - `mu`: pair-link threshold
 - `epsilon`: cluster-acceptance threshold
-- `beta`, `sigma`: blocking and stop-word behavior
-- iteration deltas for raising thresholds across peel-off passes
+- `sigma`: stop-word frequency threshold
+- blocking controls such as `topK`
+- iteration controls that raise thresholds across peel-off passes
 
-The second category controls CODA behavior:
+These are not removed by CODA.
 
-- `tahaUseSoftRoleScoring`: enables statistical token roles and self-weighted evidence
+### 16.2 CODA Comparator Parameters
+
+- `tahaUseSoftRoleScoring`: enables soft token roles and self-weighted evidence
 - `tahaUseProvisionalContext`: enables the second-pass local graph adjustment
-- `tahaUseOpenAIReview`: optional review for unresolved ambiguous pairs
-- edge thresholds such as `tahaMustLinkThreshold` and `tahaLikelyLinkThreshold`
-- guard-rule thresholds for poison-address and core-name conflict cases
+- `tahaUseOpenAIReview`: enables optional unresolved-pair review
+- `tahaMustLinkThreshold`: strong edge threshold
+- `tahaLikelyLinkThreshold`: likely edge threshold
+- `tahaContextOnlyThreshold`: context-dominance threshold
+- `tahaCannotLinkThreshold`: very weak edge threshold
+- deterministic-rule thresholds for poison-address, name-conflict, and strong-name cases
 
-The important claim is not that CODA removes every parameter from the system. DWM still has dataset-level pipeline parameters. The claim is narrower and more precise: CODA removes the need for dataset-specific comparator-internal constants such as fixed role weights, fixed rarity thresholds, and fixed evidence vectors.
-
-Runtime flow:
-
-1. `DWM55_LinkBlockPairs.py` calls `start_run(tokenFreqDict)` so CODA can compute dataset statistics once for the current run.
-2. Each candidate pair is processed by `compare_pair`.
-3. `compare_pair` computes token similarity, name/address details, evidence channels, edge type, and initial decision.
-4. After all pairs are scored, `apply_provisional_context_pass` builds the temporary graph and revises review-band decisions.
-5. Accepted edges return to DWM for transitive closure.
+The important distinction is that CODA uses these as comparator behavior controls, not dataset-specific hand tuning for token roles.
 
 ## 17. Evaluation Protocol
 
-The reported benchmark compares CODA to the classic DWM comparator set across 22 datasets:
+The reported benchmark compares CODA to classic DWM comparators across 22 datasets:
 
 - `S1` through `S18`
 - `S12PX_R1` through `S12PX_R6`
 
-All benchmarked CODA runs use:
+The reported CODA benchmark uses:
 
 - embedding-based KNN blocking
 - `topK = 10`
 - no OpenAI/LLM review
-- same DWM pipeline structure
-- same truth-based ER metrics
+- the same DWM pipeline structure
+- truth-based ER metrics
 
-The main metrics are:
+Metrics:
 
-| Metric | Definition |
-|--------|------------|
+| Metric | Meaning |
+|--------|---------|
 | precision | fraction of linked pairs that are true matches |
 | recall | fraction of true matching pairs recovered |
 | F1 | harmonic mean of precision and recall |
 
-Blocking affects the maximum possible recall because the comparator can only link candidate pairs it receives. CODA's contribution is therefore measured under the same candidate-generation regime as the baselines.
+Blocking sets the candidate-pair recall ceiling. CODA can only link pairs that blocking sends to the comparator.
 
-## 18. Benchmark Results And Interpretation
+## 18. Benchmark Results
 
 | Result | Value |
 |--------|------:|
-| CODA average precision | 0.932 |
-| CODA average recall | 0.845 |
-| CODA average F1 | 0.881 |
-| next-best classic comparator average F1 (`ScoringMatrixKris`) | 0.842 |
-| CODA F1 wins | 19 / 22 datasets |
-| LLM calls in reported CODA benchmark | 0 |
-| dataset-specific comparator constants | 0 |
+| CODA average precision | `0.932` |
+| CODA average recall | `0.845` |
+| CODA average F1 | `0.881` |
+| next-best classic comparator average F1, `ScoringMatrixKris` | `0.842` |
+| CODA F1 wins | `19 / 22` datasets |
+| LLM calls in reported CODA benchmark | `0` |
 
-The result should be read carefully:
+Interpretation:
 
-- CODA improves the balance of precision and recall across datasets.
-- CODA is not simply trading precision for recall; its role/evidence/context structure helps with both in many cases.
-- The benchmark is whole-system, so blocking still sets a ceiling on recall.
-- No LLM review was used in the reported CODA configuration.
-- DWM parameters still exist outside the comparator. The claim is not that DWM needs no dataset-level parameters. The claim is that CODA removes dataset-specific comparator-internal constants.
+- CODA improves the precision/recall balance across the benchmark set.
+- The improvement is not explained by LLM review, because the reported run disables it.
+- The result is a whole-system DWM result, so blocking quality still affects recall.
+- The result supports the CODA mechanism, but ablation studies are still needed to isolate each component.
 
-## 19. Threats To Validity
+## 19. Suggested Ablation Study
 
-Important limitations:
-
-- The datasets are from the available DWM benchmark family; broader external datasets should be tested.
-- The current results are whole-system results, not isolated comparator-only measurements.
-- Embedding-based blocking influences recall and may hide comparator behavior on missed candidate pairs.
-- Some datasets are very small or nearly solved, making F1 differences less informative.
-- The current reported CODA benchmark disables LLM review; optional LLM review may change recall/precision behavior.
-
-These limitations do not invalidate the result, but they define the next experiments needed for a paper.
-
-## 20. Suggested Ablation Study
-
-To isolate CODA's mechanisms, run:
+To write a stronger paper, the next experimental step is an ablation table.
 
 | Variant | Soft Roles | Provisional Context | Purpose |
 |---------|------------|---------------------|---------|
 | baseline Taha | off | off | original comparator behavior |
-| soft-only | on | off | measures token-role and evidence-scoring effect |
-| context-only | off | on | measures provisional graph effect alone |
-| CODA full | on | on | measures combined system |
+| soft-only | on | off | isolates role inference and self-weighted evidence |
+| context-only | off | on | isolates provisional graph adjustment |
+| CODA full | on | on | measures the complete method |
 
-The benchmark runner already supports variants such as `taha-soft-only`, `taha-context-only`, and `taha-cx`.
+The benchmark runner supports variants such as `taha-soft-only`, `taha-context-only`, and `taha-cx`.
+
+Recommended paper tables:
+
+- aggregate precision, recall, F1 by comparator
+- per-dataset F1 wins/losses
+- ablation average metrics
+- examples of false positives removed by contradiction/context-only logic
+- examples of true matches recovered by provisional context
+
+## 20. Threats To Validity
+
+Important limitations:
+
+- The benchmark uses the available DWM dataset family; external ER datasets should be tested.
+- Results are whole-system results, not isolated comparator-only scores.
+- Embedding-based blocking affects maximum achievable recall.
+- Some datasets may be small or nearly solved, making F1 differences less informative.
+- Optional LLM review is disabled in the reported benchmark; enabling it may change behavior.
+- CODA still assumes token order carries some information, especially that name-like tokens often appear before address-like tokens.
+
+These limitations do not invalidate the result. They define what should be tested next.
 
 ## 21. Reproduction
 
@@ -684,35 +786,49 @@ python DWM_colab_bundle/DWM_AllDatasets_Benchmark.py `
 
 Use `--force-embedding-device cuda` for Colab or GPU runs.
 
-## 22. Paper Outline From This Work
+## 22. Paper Structure From This Documentation
 
-A paper can be structured as:
+A paper can be organized as:
 
-1. **Introduction**: entity resolution in DWM, challenge of comparator generalization, CODA overview.
-2. **Background**: DWM peel-off pipeline, candidate generation, classic comparators.
-3. **Problem Definition**: noisy PII-style records, flattened tokens, same-household false positives, review-band ambiguity.
-4. **Method**: role inference, self-weighted evidence, provisional context, deterministic guardrails.
-5. **Implementation**: two-pass flow, runtime parameters, decision traces, and computational behavior.
-6. **Experimental Setup**: datasets, baselines, metrics, blocking configuration, no-LLM condition.
-7. **Results**: aggregate results, per-dataset wins, precision/recall interpretation.
-8. **Ablation**: soft-only, context-only, full CODA.
-9. **Discussion**: why the mechanisms help, where CODA fails, relationship to DWM semantics.
-10. **Limitations And Future Work**: more datasets, LLM review recovery, learned role models, alternative blocking.
-11. **Conclusion**: CODA as a data-adaptive comparator inside DWM.
+1. **Introduction**
+   Explain DWM, the comparator generalization problem, and CODA's three mechanisms.
 
-## 23. Current Status
+2. **Background**
+   Describe entity resolution, DWM peel-off iteration, candidate generation, and classic comparators.
 
-Completed:
+3. **Problem Definition**
+   Define flattened token comparison, same-household false positives, context ambiguity, and review-band decisions.
 
-- data-adaptive token role inference
-- self-weighted evidence scoring
-- provisional context pass
-- deterministic guardrails
-- 22-dataset benchmark
+4. **Method**
+   Present role inference, evidence scoring, contradiction, provisional context, and guard rules.
 
-Recommended next work:
+5. **Implementation**
+   Explain the two-pass comparator flow, decision traces, runtime parameters, and interaction with DWM.
 
-- run and document ablation results
-- add per-dataset result tables to this document or a separate results appendix
-- test CODA with optional LLM review enabled for review-band recall recovery
-- evaluate on additional external ER datasets
+6. **Experimental Setup**
+   List datasets, baselines, metrics, blocking configuration, and the no-LLM condition.
+
+7. **Results**
+   Present aggregate metrics, per-dataset wins, and interpretation.
+
+8. **Ablation**
+   Compare baseline, soft-only, context-only, and full CODA.
+
+9. **Discussion**
+   Explain why CODA helps, where it fails, and how temporary context preserves DWM semantics.
+
+10. **Limitations And Future Work**
+    Add external datasets, more ablation, optional review experiments, and alternative blocking.
+
+11. **Conclusion**
+    Summarize CODA as a data-adaptive comparator for DWM.
+
+## 23. Summary
+
+CODA improves the TahaComparator by making three decisions adaptive:
+
+- token meaning is inferred from dataset statistics
+- evidence channels are weighted by their own strength
+- ambiguous pairs are revised using temporary local context
+
+The method is conservative. It does not let address context override identity, it does not replace `mu`, and it does not build a permanent graph outside DWM's peel-off process. That combination is the main technical contribution.
