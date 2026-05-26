@@ -1,23 +1,16 @@
 cff-version: 1.2.0
-title: "Data Washing Machine Classic + CODA Comparator"
+title: "CODA Data Washing Machine Comparator"
 message: >-
-  Cite the upstream Data Washing Machine refactor for the original DWM
-  algorithm. Cite this repository if you use the CODA/TahaComparator-CX
-  comparator, cleaned Colab bundle, benchmark tooling, data capture, or local
-  documentation.
+  Cite this repository if you use the CODA/TahaComparator-CX comparator,
+  benchmark tooling, cleaned code/data layout, Colab bundle, or documentation.
 authors:
   - name: "Taha Mohammed"
 repository-code: "https://github.com/MaTaha-ualr/DataWashingMachineClassic"
 license-url: "https://github.com/MaTaha-ualr/DataWashingMachineClassic/blob/main/LICENSE"
 date-released: "2026-03-30"
 abstract: >-
-  Fork of dwm-refactor-v1 with a cleaned runnable Colab bundle, comparator
-  benchmark tooling, data-capture/reporting additions, and CODA
-  (Context-Driven Adaptive Comparator), implemented as TahaComparator-CX.
-  CODA combines frequency-derived token roles, self-weighted evidence scoring,
-  and ephemeral unresolved-pool context inside the DWM peel-off pipeline.
-references:
-  - type: software
-    title: "dwm-refactor-v1 (Data Washing Machine refactor)"
-    repository-code: "https://bitbucket.org/oysterer/dwm-refactor-v1"
-    abstract: "Upstream Python refactor of the Data Washing Machine; cite as the original implementation."
+  Clean research package for CODA (Context-Driven Adaptive Comparator), a
+  data-adaptive comparator for the Data Washing Machine entity-resolution
+  pipeline. CODA combines frequency-derived token roles, self-weighted evidence
+  scoring, and ephemeral unresolved-pool context inside DWM's peel-off
+  iteration model.

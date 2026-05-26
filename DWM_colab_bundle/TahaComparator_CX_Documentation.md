@@ -244,7 +244,7 @@ Run all datasets from the repository root:
 
 ```powershell
 python DWM_colab_bundle/DWM_AllDatasets_Benchmark.py `
-  --parms-glob "Data files/*-parms.txt" `
+  --parms-glob "data/*-parms.txt" `
   --variants cosine monge-elkan scoring-matrix-std scoring-matrix-kris taha-cx `
   --disable-openai-review `
   --force-embedding-device cpu `

@@ -1,145 +1,91 @@
-# Data Washing Machine Classic + CODA Comparator
+# CODA Data Washing Machine Comparator
 
-**Maintainer of this fork:** Taha Mohammed
+**Maintainer:** Taha Mohammed
 
-This repository preserves the classic Data Washing Machine (DWM) refactor and adds a clean, download-ready comparator bundle for CODA / `TahaComparator-CX` experiments.
+This repository is a clean, runnable research package for CODA, the **Context-Driven Adaptive Comparator** for the Data Washing Machine (DWM) entity-resolution pipeline.
 
-DWM is an iterative unsupervised entity-resolution pipeline. Each pass selects unresolved records, creates candidate pairs through blocking, links pairs that meet the comparator threshold, computes transitive closure, accepts high-quality clusters, and removes those accepted clusters before the next pass.
+CODA is implemented in code as the `TahaComparator-CX` configuration. It keeps the DWM peel-off workflow but makes the comparator more adaptive: token roles are inferred from the dataset, evidence channels weight themselves, and ambiguous pairs are refined with temporary local context from the current unresolved pool.
 
-The research contribution in this fork is the CODA comparator, also exposed in code as `TahaComparator-CX`: a data-adaptive comparator that improves matching decisions without dataset-specific comparator constants and without requiring LLM review.
-
-## Repository Map
+## Repository Layout
 
 | Path | Purpose |
 |------|---------|
-| `oysterer-dwm-refactor-v1-30e2f7557bf1/` | Preserved classic DWM refactor snapshot with earlier local capture/reporting changes |
-| `DWM_colab_bundle/` | Clean runnable bundle for CODA, TahaComparator-CX, classic comparator benchmarks, and Colab/local runs |
-| `Data files/` | Benchmark datasets, truth files, and parameter files for multi-dataset runs |
-| `build_colab_upload_bundle.py` | Rebuilds a clean zip for Google Colab upload |
-| `CITATION.cff`, `LICENSE` | Citation, upstream attribution, and usage notes |
+| `DWM_colab_bundle/` | Runnable DWM/CODA code, comparator benchmark scripts, and CODA documentation |
+| `data/` | Datasets, truth files, and dataset parameter files |
+| `build_colab_upload_bundle.py` | Creates a clean zip for Colab or sharing |
+| `requirements.txt` | Minimal classic runtime dependencies |
+| `CITATION.cff`, `LICENSE` | Citation and attribution metadata |
 
-The root repository is intended to be readable and runnable after download. Generated logs, result workbooks, data-capture folders, caches, and link-index outputs are excluded from Git.
+Generated artifacts are intentionally excluded from Git: logs, Excel results, `data_capture/`, benchmark output folders, caches, generated link-index files, and upload zips.
 
-## Upstream Source
+## What CODA Adds
 
-The classic DWM refactor this repository builds on is hosted on Bitbucket:
+CODA improves pair-level matching decisions through three mechanisms.
 
-- [oysterer / dwm-refactor-v1](https://bitbucket.org/oysterer/dwm-refactor-v1/src/master/)
+### 1. Statistical Token Role Inference
 
-Use that upstream project as the primary source when citing or describing the original DWM algorithm. Cite this GitHub repository when using the local CODA comparator, benchmark tooling, capture hooks, cleaned Colab bundle, or local documentation.
-
-Development of related work was supported in part by NSF award `OIA-1946391` under the EPSCoR program.
-
-## CODA / TahaComparator-CX
-
-CODA stands for **Context-Driven Adaptive Comparator**. In the code and parameter files, the same comparator is selected as `TahaComparator` with the CX options enabled:
-
-- `tahaUseSoftRoleScoring=True`
-- `tahaUseProvisionalContext=True`
-- `tahaUseOpenAIReview=False`
-
-CODA keeps the DWM peel-off pipeline, but changes how ambiguous record pairs are scored.
-
-### Mechanism 1: Statistical Token Role Inference
-
-Classic comparators often treat every token as equally informative. CODA does not. It infers soft token roles from the dataset's own token frequency distribution:
-
-- identity evidence: rare name-like tokens
-- location evidence: address/city/state-like tokens
-- numeric evidence: street numbers, zip codes, SSN-like values
-- volatile evidence: short/common/suffix-like tokens
-
-The core rarity signal is:
+Each token receives soft identity/location/numeric/volatile role weights from observable dataset statistics. The main rarity signal is:
 
 ```text
 rarity = 1 - log(1 + freq) / log(1 + max_freq_in_dataset)
 ```
 
-This makes the comparator portable. A rare surname and a common state abbreviation naturally receive different evidence weight without a hand-coded list of names, states, or street suffixes.
+This lets CODA treat a rare surname differently from a common state abbreviation without hardcoded lists of names, street suffixes, or locations.
 
-### Mechanism 2: Self-Weighted Evidence
+### 2. Self-Weighted Evidence
 
-CODA combines evidence channels by their own strength instead of a fixed hand-tuned weight vector:
+CODA computes identity, context, numeric, and similarity evidence, then lets each channel weight itself:
 
 ```text
 total = identity + context + numeric + similarity
 base_score = (identity^2 + context^2 + numeric^2 + similarity^2) / total
 ```
 
-Contradiction is penalized most strongly when address/context evidence is high but identity evidence is weak. This directly targets same-household false matches where two different people share an address.
+Contradiction is penalized most when context is strong but identity is weak, which helps avoid same-household false matches.
 
-### Mechanism 3: Ephemeral Provisional Context
+### 3. Ephemeral Provisional Context
 
-CODA uses a two-pass comparator flow inside each DWM iteration:
+Inside each DWM iteration, CODA builds a temporary graph from strong pass-1 edges. Review-band pairs receive a small score adjustment from local support/conflict, then the normal DWM `mu` threshold still decides.
 
-1. Score all candidate pairs and classify strong edges, weak edges, review-band pairs, and rejects.
-2. Build a temporary union-find graph from strong edges in the current unresolved pool.
-3. Use that local graph to adjust review-band pair scores.
-4. Let the normal DWM threshold `mu` make the final link decision.
+The graph is discarded after the iteration, preserving DWM's peel-off semantics.
 
-The context graph is discarded after the iteration. This matters because DWM is a peel-off process: accepted records leave the unresolved pool, so a permanent global graph would not match the algorithm's semantics.
+## Benchmark Headline
 
-### Key Result
+Across 22 datasets (`S1` through `S18`, plus `S12PX_R1` through `S12PX_R6`), CODA was benchmarked against the classic DWM comparator set under the same blocking and DWM parameters:
 
-Across 22 datasets (`S1` through `S18`, plus `S12PX_R1` through `S12PX_R6`), CODA was benchmarked against the four classic DWM comparators under the same blocking and DWM parameters:
-
-| Comparator Family | Average Precision | Average Recall | Average F1 |
-|-------------------|------------------:|---------------:|-----------:|
+| Comparator | Average Precision | Average Recall | Average F1 |
+|------------|------------------:|---------------:|-----------:|
 | CODA / TahaComparator-CX | 0.932 | 0.845 | 0.881 |
 | ScoringMatrixKris | - | - | 0.842 |
 
-CODA wins 19 of 22 datasets on F-measure, with zero LLM calls and zero dataset-specific comparator constants inside the comparator.
+CODA wins 19 of 22 datasets on F-measure with zero LLM calls and no dataset-specific comparator constants.
 
-The detailed mechanism writeup is in [`DWM_colab_bundle/TahaComparator_CX_Documentation.md`](./DWM_colab_bundle/TahaComparator_CX_Documentation.md).
+Detailed notes are in [`DWM_colab_bundle/TahaComparator_CX_Documentation.md`](./DWM_colab_bundle/TahaComparator_CX_Documentation.md).
 
 ## Quick Start
-
-### 1. Clone
 
 ```powershell
 git clone https://github.com/MaTaha-ualr/DataWashingMachineClassic.git
 cd DataWashingMachineClassic
-```
-
-### 2. Install Dependencies
-
-For the legacy classic snapshot:
-
-```powershell
 python -m venv .venv
 .venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-For the CODA comparator bundle:
-
-```powershell
 pip install -r DWM_colab_bundle/requirements-colab.txt
 ```
 
-### 3. Run CODA Locally On S12
+Run CODA on the included S12 sample:
 
 ```powershell
 cd DWM_colab_bundle
 python DWM00_Driver.py --parms-file S12-parms.cx-cpu.txt
 ```
 
-This CPU-safe run enables soft role scoring and provisional context, disables OpenAI review, and uses the included S12 sample files.
+The S12 parameter files reference data through `../data/...`, so code and datasets stay separate.
 
-### 4. Run The Classic Snapshot
+## Benchmarks
 
-```powershell
-cd oysterer-dwm-refactor-v1-30e2f7557bf1
-python DWM00_Driver.py
-```
+Run from the repository root.
 
-The classic driver prompts for parameter-file input.
-
-## Comparator Benchmarks
-
-Run these commands from the repository root.
-
-### Single-Dataset Benchmark
+Single dataset:
 
 ```powershell
 python DWM_colab_bundle/DWM_Comparator_Benchmark.py `
@@ -151,11 +97,11 @@ python DWM_colab_bundle/DWM_Comparator_Benchmark.py `
   --run-label s12_coda_compare
 ```
 
-### All-Datasets Benchmark
+All datasets:
 
 ```powershell
 python DWM_colab_bundle/DWM_AllDatasets_Benchmark.py `
-  --parms-glob "Data files/*-parms.txt" `
+  --parms-glob "data/*-parms.txt" `
   --variants cosine monge-elkan scoring-matrix-std scoring-matrix-kris taha-cx `
   --disable-openai-review `
   --force-embedding-device cpu `
@@ -163,22 +109,20 @@ python DWM_colab_bundle/DWM_AllDatasets_Benchmark.py `
   --run-label all_datasets_coda_compare
 ```
 
-For Colab/GPU usage, see [`DWM_colab_bundle/COLAB_UPLOAD_README.md`](./DWM_colab_bundle/COLAB_UPLOAD_README.md).
+Use `--force-embedding-device cuda` on a CUDA machine or in Colab.
 
-## Build A Clean Colab Upload Zip
+## Build A Clean Upload Zip
 
 ```powershell
 python build_colab_upload_bundle.py
 ```
 
-The generated zip includes source code, data files, docs, citation metadata, and requirements. It excludes regenerated outputs such as logs, workbooks, data-capture folders, caches, benchmark output folders, and link-index files.
+The zip includes `DWM_colab_bundle/`, `data/`, root documentation, citation metadata, license text, and requirements. It excludes generated outputs and local caches.
 
 ## Citation
 
-Use the upstream DWM refactor as the primary citation for the classic DWM algorithm. Cite this repository when using the CODA comparator, benchmark scripts, Colab bundle, data-capture changes, or local documentation.
+Use [`CITATION.cff`](./CITATION.cff) when citing this repository. Cite CODA when using the adaptive comparator, benchmark runners, cleaned data/code layout, or Colab bundle.
 
-See [`CITATION.cff`](./CITATION.cff) for repository metadata.
+## License And Attribution
 
-## Licensing
-
-This repository is not presented as a blanket relicense of the upstream DWM code. Read [`LICENSE`](./LICENSE) for attribution and usage expectations that apply to the upstream base and this fork's additions.
+See [`LICENSE`](./LICENSE). This repository includes DWM-derived code plus local CODA comparator work, benchmark tooling, and documentation.

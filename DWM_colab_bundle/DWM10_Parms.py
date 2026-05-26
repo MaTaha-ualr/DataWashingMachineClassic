@@ -8,6 +8,7 @@
 #coding: utf-8
 
 import sys
+import os
 #####################################
 # Parameters set by the User Script
 #####################################
@@ -238,9 +239,8 @@ def getParms(parmFileName, logName):
         if parmName=='inputFileName':
             global inputFileName
             inputFileName = parmValue
-            periodIndex = inputFileName.rfind('.')
             global inputPrefix
-            inputPrefix = inputFileName[0:periodIndex]
+            inputPrefix = os.path.splitext(os.path.basename(inputFileName))[0]
             continue
         if parmName=='delimiter':
             global delimiter

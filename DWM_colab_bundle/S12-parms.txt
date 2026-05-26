@@ -3,7 +3,7 @@
 #######################################
 # inputFileName must a valid path to file of entity references
 # No default value, this parameter must be specified
-inputFileName=S12PX.txt
+inputFileName=../data/S12PX.txt
 # delimiter the field sparator character, must be comma, 
 # semi-colon, colon, pipe character, or tab character. 
 # Default value is comma
@@ -21,7 +21,7 @@ tokenizerType=Compress
 # truthFileName Optional Parameter
 # if provided, must be an existing text file in valid format
 # Default value null
-truthFileName=truthABCpoorDQ.txt
+truthFileName=../data/truthABCpoorDQ.txt
 # runIterationProfile Optional Parameter
 # if True, outputs cluster profile & F-meas for each iteration
 # Default value False

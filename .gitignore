@@ -46,4 +46,5 @@ DWM_colab_bundle/DWM_Results_*.xlsx
 DWM_colab_bundle/*-LinkIndex.txt
 
 # Dataset staging artifacts
-Data files/Data_Parms_Truth.zip
+data/Data_Parms_Truth.zip
+data/*-LinkIndex.txt

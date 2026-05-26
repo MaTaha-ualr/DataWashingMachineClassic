@@ -1,3 +1,0 @@
-S2-parms.txt
-S8-parms.txt
-

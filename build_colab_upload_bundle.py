@@ -86,7 +86,7 @@ def main():
     package_root.mkdir(parents=True, exist_ok=True)
 
     copy_tree(repo_root / "DWM_colab_bundle", package_root / "DWM_colab_bundle")
-    copy_tree(repo_root / "Data files", package_root / "Data files")
+    copy_tree(repo_root / "data", package_root / "data")
 
     for relative_name in ("README.md", "LICENSE", "CITATION.cff", "requirements.txt"):
         copy_optional_file(repo_root, package_root, relative_name)

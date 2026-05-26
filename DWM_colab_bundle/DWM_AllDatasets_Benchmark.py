@@ -28,7 +28,7 @@ def parse_args():
     )
     parser.add_argument(
         '--parms-glob',
-        default='Data files/*-parms.txt',
+        default='data/*-parms.txt',
         help='Glob pattern for dataset parameter files, relative to repo root unless absolute.',
     )
     parser.add_argument(

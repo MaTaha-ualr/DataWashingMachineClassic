@@ -1,12 +1,16 @@
 # Colab Upload Workflow
 
-This repository can be packaged into a clean Colab-ready zip with:
+Create the upload package from the repository root:
 
 ```bash
 python build_colab_upload_bundle.py
 ```
 
-The zip contains the runnable DWM/CODA source bundle, benchmark datasets, parameter files, requirements, and documentation. It excludes generated logs, result spreadsheets, data-capture folders, caches, benchmark output folders, and link-index files.
+The generated zip keeps the project layout clean:
+
+- code and docs in `DWM_colab_bundle/`
+- datasets and truth files in `data/`
+- generated outputs excluded
 
 ## Recommended Colab Steps
 
@@ -18,8 +22,6 @@ The zip contains the runnable DWM/CODA source bundle, benchmark datasets, parame
 ```bash
 pip install -r DWM_colab_bundle/requirements-colab.txt
 ```
-
-5. Run benchmarks with `--force-embedding-device cuda`.
 
 ## Single-Dataset CODA Example
 
@@ -37,7 +39,7 @@ python DWM_colab_bundle/DWM_Comparator_Benchmark.py \
 
 ```bash
 python DWM_colab_bundle/DWM_AllDatasets_Benchmark.py \
-  --parms-glob "Data files/*-parms.txt" \
+  --parms-glob "data/*-parms.txt" \
   --variants cosine monge-elkan scoring-matrix-std scoring-matrix-kris taha-cx \
   --disable-openai-review \
   --force-embedding-device cuda \
@@ -45,23 +47,4 @@ python DWM_colab_bundle/DWM_AllDatasets_Benchmark.py \
   --run-label all_datasets_gpu_coda_compare
 ```
 
-The main outputs are:
-
-- `summary.csv`
-- `summary.md`
-- per-dataset benchmark folders under `dataset_runs/`
-
-## Resume After Disconnect
-
-If Colab disconnects mid-run, rerun the same all-datasets command with `--resume`:
-
-```bash
-python DWM_colab_bundle/DWM_AllDatasets_Benchmark.py \
-  --parms-glob "Data files/*-parms.txt" \
-  --variants cosine monge-elkan scoring-matrix-std scoring-matrix-kris taha-cx \
-  --disable-openai-review \
-  --force-embedding-device cuda \
-  --output-root /content/drive/MyDrive/dwm_benchmarks \
-  --run-label all_datasets_gpu_coda_compare \
-  --resume
-```
+Resume after a disconnect by rerunning the same all-datasets command with `--resume`.
